@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WH Questions Practice</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 30px; position: relative; }
+    .question { font-size: 1.5em; margin: 20px; }
+    .wh-type { font-size: 1.2em; color: darkblue; }
+    .speech { 
+      font-size: 1.2em; 
+      color: darkgreen; 
+      margin-top: 20px;
+      min-height: 100px;
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+      white-space: pre-wrap;
+    }
+    .hint { color: gray; }
+    .answer { margin-top: 15px; font-size: 1.1em; color: #444; }
+    .controls {
+      margin: 20px 0;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 1em;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      margin: 5px;
+    }
+    #toggleListenBtn { background-color: #4CAF50; color: white; }
+    #clearBtn { background-color: #2196F3; color: white; }
+    #playAnswerAudioBtn { background-color: #9C27B0; color: white; }
+    #playAnswerTTSBtn { background-color: #FF9800; color: white; }
+    #status {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: 5px 10px;
+      background-color: #333;
+      color: white;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    .gap-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      background-color: red;
+      border-radius: 50%;
+      margin: 0 5px;
+      vertical-align: middle;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .gap-indicator.visible {
+      opacity: 1;
+    }
+    .permission-warning {
+      color: #d32f2f;
+      margin-top: 10px;
+      font-size: 0.9em;
+    }
+    .audio-controls {
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>WH Questions Practice</h1>
+  <p class="hint">Press <strong>Space</strong> to hear the question</p>
+
+  <div class="controls">
+    <button id="toggleListenBtn">Start Listening</button>
+    <button id="clearBtn">Clear Text</button>
+  </div>
+  <div id="permissionWarning" class="permission-warning" style="display: none;"></div>
+
+  <div class="question" id="questionText">Press Space to begin...</div>
+  <div class="wh-type" id="whType"></div>
+  <div class="answer" id="answerText"></div>
+  <div class="speech" id="speechText">Your transcribed text will appear here...</div>
+
+  <div class="audio-controls">
+    <button id="playAnswerAudioBtn">Play Answer Audio</button>
+    <button id="playAnswerTTSBtn">Play Answer as TTS</button>
+  </div>
+
+  <div id="status">Status: Ready</div>
+  <audio id="audioPlayer"></audio>
+
+  <script>
+    const questions = [
+      {
+        question: "Why do birds fly?",
+        wh: "Why",
+        answers: [
+          { text: "Because they have wings.", audio: "why_birds_wings.mp3" },
+          { text: "To find food and migrate.", audio: "why_birds_migrate.mp3" }
+        ]
+      },
+      {
+        question: "Where do you live?",
+        wh: "Where",
+        answers: [
+          { text: "I live in New York.", audio: "where_ny.mp3" },
+          { text: "In a small village in Italy.", audio: "where_italy.mp3" }
+        ]
+      },
+      {
+        question: "What is your favorite food?",
+        wh: "What",
+        answers: [
+          { text: "I love pizza.", audio: "what_pizza.mp3" },
+          { text: "Sushi is my favorite.", audio: "what_sushi.mp3" }
+        ]
+      },
+      {
+        question: "Whom do you admire?",
+        wh: "Whom",
+        answers: [
+          { text: "I admire my mother.", audio: "whom_mother.mp3" },
+          { text: "My teacher inspires me.", audio: "whom_teacher.mp3" }
+        ]
+      }
+    ];
+
+    let currentIndex = -1;
+    let recognition;
+    let isListening = false;
+    let silenceTimer;
+    let lastSpeechTime = 0;
+    let finalTranscript = '';
+    let currentQuestion = null;
+    let currentAnswer = null;
+    
+    const questionText = document.getElementById('questionText');
+    const whType = document.getElementById('whType');
+    const answerText = document.getElementById('answerText');
+    const speechText = document.getElementById('speechText');
+    const audioPlayer = document.getElementById('audioPlayer');
+    const toggleListenBtn = document.getElementById('toggleListenBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const playAnswerAudioBtn = document.getElementById('playAnswerAudioBtn');
+    const playAnswerTTSBtn = document.getElementById('playAnswerTTSBtn');
+    const statusElement = document.getElementById('status');
+    const permissionWarning = document.getElementById('permissionWarning');
+    const gapIndicator = document.createElement('span');
+    gapIndicator.className = 'gap-indicator';
+    statusElement.appendChild(gapIndicator);
+
+    function getRandomItem(arr) {
+      return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function nextQuestion() {
+      currentIndex = (currentIndex + 1) % questions.length;
+      currentQuestion = questions[currentIndex];
+      currentAnswer = getRandomItem(currentQuestion.answers);
+
+      questionText.textContent = currentQuestion.question;
+      whType.textContent = `Suggested WH-type: ${currentQuestion.wh}`;
+      answerText.textContent = `Example answer: ${currentAnswer.text}`;
+
+      // Set audio source for answer but don't play automatically
+      audioPlayer.src = currentAnswer.audio;
+      
+      // Play the question text automatically via TTS
+      playTextToSpeech(currentQuestion.question, "Question");
+    }
+
+    function updateStatus(message) {
+      statusElement.innerHTML = `Status: ${message}`;
+    }
+
+    function showGapIndicator() {
+      gapIndicator.classList.add('visible');
+      setTimeout(() => gapIndicator.classList.remove('visible'), 1000);
+    }
+
+    async function toggleRecognition() {
+      if (isListening) {
+        stopRecognition();
+      } else {
+        await startRecognition();
+      }
+    }
+
+    async function startRecognition() {
+      if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+        updateStatus("Speech recognition not supported");
+        permissionWarning.textContent = "Speech recognition is not supported in your browser.";
+        permissionWarning.style.display = 'block';
+        return;
+      }
+
+      try {
+        // Request microphone permission first
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop()); // We just needed permission
+        
+        // Now initialize speech recognition
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+        
+        recognition.onstart = () => {
+          isListening = true;
+          toggleListenBtn.textContent = "Stop Listening";
+          toggleListenBtn.style.backgroundColor = "#f44336";
+          updateStatus("Listening...");
+          permissionWarning.style.display = 'none';
+        };
+
+        recognition.onresult = (event) => {
+          clearTimeout(silenceTimer);
+          let interimTranscript = '';
+          
+          // Reset silence timer
+          lastSpeechTime = Date.now();
+          silenceTimer = setTimeout(() => {
+            showGapIndicator();
+            speechText.textContent += '\n\n'; // Add gap between sentences
+          }, 1500); // 1.5 seconds of silence triggers gap indicator
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const result = event.results[i];
+            const transcript = result[0].transcript;
+            
+            if (result.isFinal) {
+              finalTranscript += transcript + ' ';
+              speechText.textContent = finalTranscript + interimTranscript;
+            } else {
+              interimTranscript = transcript;
+              speechText.textContent = finalTranscript + interimTranscript;
+            }
+          }
+        };
+
+        recognition.onerror = (event) => {
+          updateStatus(`Error: ${event.error}`);
+          permissionWarning.textContent = `Error: ${event.error === 'not-allowed' ? 'Microphone access was denied' : event.error}`;
+          permissionWarning.style.display = 'block';
+          stopRecognition();
+        };
+
+        recognition.onend = () => {
+          if (isListening) {
+            recognition.start(); // Restart if we're still supposed to be listening
+          }
+        };
+
+        recognition.start();
+      } catch (error) {
+        updateStatus("Microphone access denied");
+        permissionWarning.textContent = "Microphone access is required for speech recognition. Please allow microphone access.";
+        permissionWarning.style.display = 'block';
+        console.error("Error accessing microphone:", error);
+      }
+    }
+
+    function stopRecognition() {
+      if (recognition) {
+        isListening = false;
+        recognition.stop();
+        toggleListenBtn.textContent = "Start Listening";
+        toggleListenBtn.style.backgroundColor = "#4CAF50";
+        updateStatus("Stopped");
+        clearTimeout(silenceTimer);
+      }
+    }
+
+    function clearText() {
+      speechText.textContent = '';
+      finalTranscript = '';
+      updateStatus("Text cleared");
+    }
+
+    function playAnswerAudio() {
+      if (audioPlayer.src) {
+        audioPlayer.play();
+        updateStatus("Playing answer audio");
+      } else {
+        updateStatus("No audio file available");
+      }
+    }
+
+    function playTextToSpeech(text, context = "Text", cb = null) {
+      if (!text) return;
+      
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-US';
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        
+        // Stop any current speech
+        window.speechSynthesis.cancel();
+        
+        // Speak the text
+        window.speechSynthesis.speak(utterance);
+        updateStatus(`Playing ${context} via TTS`);
+        
+        utterance.onend = function() {
+          updateStatus(`${context} playback complete`);
+		  
+		  cb && cb();
+        };
+      } else {
+        updateStatus("Text-to-speech not supported");
+        permissionWarning.textContent = "Text-to-speech is not supported in your browser.";
+        permissionWarning.style.display = 'block';
+      }
+    }
+
+    toggleListenBtn.addEventListener('click', toggleRecognition);
+    clearBtn.addEventListener('click', clearText);
+    playAnswerAudioBtn.addEventListener('click', playAnswerAudio);
+    playAnswerTTSBtn.addEventListener('click', () => {
+      if (currentAnswer) playTextToSpeech(currentAnswer.text, "Answer");
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+		
+		nextQuestion();
+		
+        playTextToSpeech(currentQuestion.question, "Question");
+      }
+    });
+
+    // Initialize
+    updateStatus("Ready");
+  </script>
+</body>
+</html>
